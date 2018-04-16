@@ -1,23 +1,29 @@
 #_[
- exec clojure "$0" "$@"
+ clojure -Sdescribe 
+ exec clojure -Sverbose "$0" "$@"
 ]
 
 (def source-dir "src")
 
 (defn compiler-config [args]
-  (let [base-dir "."]
-  (prn :args args)
-  {:main 'init.index
-   :verbose true
-   :watch-fn (fn [] (println "\n\nUpdated build" 
-                             (str (java.time.LocalDateTime/now))))
-   :asset-path "out"
-   :output-dir (str base-dir "/out")
-   :output-to  (str base-dir "/index.js")
-   :source-map true
-   :optimizations :none ; :whitespace
-   :pretty-print true
-  }))
+  (let [base-dir "."
+        optimiz (-> args second keyword)
+        optimiz (or optimiz :none)]
+
+    (prn :args args)
+    {:main 'init.index
+     :verbose true
+     :watch-fn
+     (fn []
+       (println "\n\nUpdated build"
+                (str (java.time.LocalDateTime/now))))
+     :asset-path "out"
+     :output-dir (str base-dir "/out")
+     :output-to  (str base-dir "/index.js")
+     :source-map (if (= :advanced optimiz) nil true)
+     :optimizations (or optimiz :none)
+     :pretty-print true
+     }))
 
 ;;; Task dispatching.
 

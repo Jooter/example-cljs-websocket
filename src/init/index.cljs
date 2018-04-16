@@ -4,36 +4,54 @@
             [freactive.dom :as dom]
             #_[clojure.string :as s]
             [haslett.client :as ws]
-            #_[haslett.format :as fmt]
+            [haslett.format :as fmt]
             [cljs.core.async :refer [put! take! chan <! >!]])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]
                    [freactive.macros :refer [rx]]))
 
+(defonce stream (atom nil))
+
 (defn log1 [& args] (js/console.log (pr-str args)))
 
-(defn send-msg [{:keys [sink]}]
-  (put! sink "Hello World 1")
-  (put! sink "Hello World 2"))
+(defn recv-msg [stream]
+  (let [{:keys [source]} @stream]
+    (go-loop [i 0]
+      (let [m (<! source)
+            [h1 & r1] m
+            ch-key (:%c h1)
+            ch (get @stream ch-key)
+            rtn (>! ch m)]
 
-(defn recv-msg [stream last-msg]
-  (go-loop [i 0]
-    (let [m (<! (:source stream))]
-      (reset! last-msg m)
-      (prn :recv i m)
-      (when m (recur (inc i))))))
+        (prn :recv i rtn h1 r1)
+
+        (when m (recur (inc i)))))))
+
+(defn req [stream h1 r1]
+  (let [{:keys [source sink]} @stream
+        ch-key (gensym "c")
+        ch (chan)]
+    (swap! stream assoc ch-key ch)
+    (log1 :c (keys @stream))
+    (go
+      (>! sink (cons (merge {:%c ch-key} h1) r1))
+      (let [rtn (<! ch)]
+        (swap! stream dissoc ch-key)
+        (log1 :resp rtn)
+        rtn))))
 
 ;; ------------------------- 
 ;; Views
 
 (defn view [last-msg]
   [:div
-   [:h3 "Websocket by cljs"]
-   (rx
-    (if @last-msg
-      [:div
-       [:p "Last message::"]
-       [:p @last-msg]
-       ]))
+   #_[:h3 "Websocket by cljs"]
+   [:button
+    {:on-click
+     (fn [e]
+       (req stream {:f 'f1} (list 1 2 3))
+       )
+     }
+    "Click me!"]
    ])
 
 ;; -------------------------
@@ -42,29 +60,24 @@
 (set!
  (.-onload js/window)
  (fn []
-   (let [last-msg (atom nil)
-         root
+   (let [root
          (dom/append-child! (.-body js/document) [:div#root])]
 
      (aset js/document "title" "Websocket by cljs")
 
      (dom/mount! root (view last-msg))
+     (log1 "page has been mounted")
 
      (go
-       (let [stream
-             (<! (ws/connect
-                  "ws://echo.websocket.org"
-                  {:source (chan 1 (map #(str "svr: " %)))}
-                  ))]
-           ; (>! (:sink stream) "Hello World")
-           #_(prn :recv (<! (:source stream)))
+       (reset!
+        stream
+        (<! (ws/connect
+             "ws://echo.websocket.org"
+             {:format fmt/transit}
+             )))
 
-           ; (send-msg (:sink   stream))
-           ; (recv-msg (:source stream))
-           (recv-msg stream last-msg)
-           (send-msg stream)
-           #_(ws/close stream)
-           ))
-
-     (log1 "page has been mounted")
-     )))
+       (log1 "ws is connected")
+       (recv-msg stream)
+       (req stream {:f 'f1-start} (list 1 2 3))
+       #_(ws/close @stream)
+       ))))
